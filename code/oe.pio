@@ -1,0 +1,55 @@
+.program oe_toggle
+
+.wrap_target
+// Set to input.
+mov osr, null
+out pindirs, 8
+
+// Pre-set the OSR
+mov osr, ~null
+
+// Wait for rising edge.
+wait 1 pin 0
+
+// Set to output.
+out pindirs, 8
+
+// Wait for falling edge.
+wait 0 pin 0
+.wrap
+
+
+% c-sdk {
+static inline void oe_toggle_program_init(PIO pio, uint sm, uint offset, uint dataBasePin, uint oePin) {
+
+  pio_sm_config c = oe_toggle_program_get_default_config( offset );
+  // Set data to read.
+  pio_sm_set_consecutive_pindirs(pio, sm, dataBasePin, 8, false);
+  // Set OE to read.
+  pio_sm_set_consecutive_pindirs(pio, sm, oePin, 1, false);
+  
+  // Set data to use for output.
+  pio_gpio_init( pio, dataBasePin );
+  pio_gpio_init( pio, dataBasePin + 1 );
+  pio_gpio_init( pio, dataBasePin + 2 );
+  pio_gpio_init( pio, dataBasePin + 3 );
+  pio_gpio_init( pio, dataBasePin + 4 );
+  pio_gpio_init( pio, dataBasePin + 5 );
+  pio_gpio_init( pio, dataBasePin + 6 );
+  pio_gpio_init( pio, dataBasePin + 7 );
+  
+  //pio_gpio_init( pio, oePin );
+  
+  // Set out pins.
+  sm_config_set_out_pins( &c, dataBasePin, 8 );
+  
+  // Set IN pins?
+  sm_config_set_in_pins( &c, oePin );
+  sm_config_set_in_pin_count( &c, 1 );
+  
+
+  pio_sm_init( pio, sm, offset, &c );
+  pio_sm_set_enabled( pio, sm, true );
+}
+
+%}

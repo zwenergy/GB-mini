@@ -1,0 +1,57 @@
+.program write_check
+
+.wrap_target
+waitWE:
+// Wait for WE to go high
+wait 1 gpio 13
+
+// Check if WE is high
+jmp pin glitchCheck
+
+// No write to the cart.
+jmp waitWE
+
+glitchCheck:
+jmp pin latchData
+
+// No write to the cart.
+jmp waitWE
+
+latchData:
+// Read the actual data
+in pins, 8
+
+// Extend the data
+in null, 24
+
+// Push it.
+push
+
+// Wait till WE goes low again.
+wait 0 gpio 13
+
+.wrap
+
+
+% c-sdk {
+static inline void write_check_program_init(PIO pio, uint sm, uint offset, uint dataPin, uint wePin ) {
+
+  pio_sm_config c = write_check_program_get_default_config( offset );
+  // Set address to read.
+  pio_sm_set_consecutive_pindirs(pio, sm, dataPin, 8, false);
+  // Set WE Pin to read.
+  pio_sm_set_consecutive_pindirs(pio, sm, wePin, 1, false);
+  
+  // Set IN pins
+  sm_config_set_in_pins( &c, dataPin );
+  sm_config_set_in_pin_count( &c, 8 );
+  
+  // Set jmp pin.
+  sm_config_set_jmp_pin( &c, wePin );
+  
+
+  pio_sm_init( pio, sm, offset, &c );
+  pio_sm_set_enabled( pio, sm, true );
+}
+
+%}
