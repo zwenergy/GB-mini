@@ -15,10 +15,14 @@ Save games are not automatically permanently saved.
 To save the current SRAM content to the PM2040's Flash (which is automatically restored during the boot) **hold the C-Button for roughly 3 seconds.**
 
 ## Rumble
+There are two pre-compiled versions, one with rumble support and one without.
+No dynamic differentiation is done between the mappers. 
 The rumble function of games with the MBC5 mapper are emulated using the Pokemon mini's own rumble function.
+For most games you should use the pre-compiled variant without rumble, as otherwise the rumble might be activated while not being intended.
 
 ## Audio
-Currently there is no sound emulation.
+For audio emulation the [minigb_apu](https://github.com/deltabeard/Peanut-GB/tree/master/examples/sdl2/minigb_apu) emulation from the Peanut emulator is used.
+On the Pokemon mini side, the audio samples are played back back as 5b audio samples.
 
 ## Video
 The video is downscaled by 0.5x.
