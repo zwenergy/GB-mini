@@ -31,8 +31,11 @@
 #include "gb_rom.h"
 
 // Include the GB emulator.
+uint8_t audio_read( uint16_t addr );
+void audio_write( uint16_t addr, uint8_t val );
 #define ENABLE_LCD 1
-#define ENABLE_SOUND 0
+#define ENABLE_SOUND 1
+#include "minigb_apu/minigb_apu.h"
 #include "peanut_gb.h"
 
 // For centering the image.
@@ -51,6 +54,7 @@
 uint8_t rom_bank0[ 16384 ];
 static uint8_t ram[ SRAMSIZE ];
 static int LCDLineBusy = 0;
+uint32_t doingSave = 0;
 
 struct gb_priv {
     uint32_t lcd_line_hashes[LCD_HEIGHT];
@@ -59,6 +63,12 @@ struct gb_priv {
 
 static struct gb_priv gb_priv = { 0 };
 static uint8_t lineBuffer[ LCD_WIDTH ];
+
+// Audio buffer.
+audio_sample_t audioBuffer[ 1100 ];
+
+// Audio sample period in microseconds.
+#define AUDIOSAMPLEPER_US (( 1000000 / AUDIO_SAMPLE_RATE ) )
 
 // Packed framebuffer (which is copied from the cart)
 #define FBOFFSET 0x4000
@@ -71,6 +81,18 @@ static uint8_t lineBuffer[ LCD_WIDTH ];
 
 // Rumble off.
 #define RUMBLEOFF *( (volatile uint8_t*) RUMBLE ) = 0
+
+// Audio
+#define AUDIO *( (volatile uint8_t*) ( rom + 0x4301 ) )
+#define AUDIOSTEPS 32
+
+// Audio volume.
+#define AUDIO_VOL *( (volatile uint8_t*) ( rom + 0x4302 ) )
+
+// Use rumble? We do not differentiate here by MBC, so using the rumble
+// feature with non-rumble games can cause rumble when no rumble is
+// intended.
+#define USE_RUMBLE
 
 // FRAMEBLEND defines the number of colors and the number of frames
 // blended together to create these colors.
@@ -131,12 +153,14 @@ void gbWriteByteRAM( struct gb_s *gb, const uint_fast32_t addr, const uint8_t va
 {
   ram[ addr ] = val;
   
+  #ifdef USE_RUMBLE
   // Enable Rumble?
   if ( addr & 0b1000 ) {
     RUMBLEON;
   } else {
     RUMBLEON;
-  } 
+  }
+  #endif
 }
 
 void gbError( struct gb_s *gb, const enum gb_error_e gb_err, const uint16_t val )
@@ -181,6 +205,23 @@ void LCDLine( struct gb_s *gb, const uint8_t pixels[ LCD_WIDTH ], const uint_fas
   }
 }
 
+// GB audio stuff.
+static struct minigb_apu_ctx apu;
+
+uint8_t audio_read(uint16_t addr)
+{
+  return minigb_apu_audio_read(&apu, addr);
+}
+
+void audio_write(uint16_t addr, uint8_t val)
+{
+  minigb_apu_audio_write(&apu, addr, val);
+}
+
+void audio_callback(void *ptr, uint8_t *data, int len)
+{
+  minigb_apu_audio_callback(&apu, (void *)data);
+}
 
 
 
@@ -217,8 +258,19 @@ void LCDLine( struct gb_s *gb, const uint8_t pixels[ LCD_WIDTH ], const uint_fas
 #define OE 14
 #define CS 15
 
+// Audio stuff.
+uint32_t sampleCnt = 0;
+audio_sample_t maxVal = 0;
+audio_sample_t audioScale = 1;
+
 // Actual program running and filling the FB.
 void __not_in_flash_func( doGB )() {
+  // Clear audio.
+  AUDIO = 0;
+  
+  // Set volume to max.
+  AUDIO_VOL = 3;
+  
   // Clear screen.
   for ( unsigned b = 0; b < FRAMEBLEND; ++b ) {
     for ( unsigned y = 0; y < 64; ++y ) {
@@ -252,6 +304,9 @@ void __not_in_flash_func( doGB )() {
     ram[ i ] = *addr;
     ++addr;
   }
+  
+  // Audio init.
+  minigb_apu_audio_init( &apu );
 
   // GB display function.
   gb_init_lcd( &gb, &LCDLine );
@@ -325,6 +380,8 @@ void __not_in_flash_func( doGB )() {
     
     // Check for save game transfer to flash?
     if ( saveGameCnt >= SAVERAMFRAMES && !saveGameDone ) {
+      doingSave = 1;
+      
       // Save RAM to Flash.
       // Not interrupt-safe.
       uint32_t ints = save_and_disable_interrupts();
@@ -346,6 +403,7 @@ void __not_in_flash_func( doGB )() {
       restore_interrupts ( ints );
       
       saveGameDone = 1;
+      doingSave = 0;
     }
     
     // Wait for frame.
@@ -354,15 +412,57 @@ void __not_in_flash_func( doGB )() {
     }
 
     frameStart = time_us_64();
+    
+    // Get audio.
+    minigb_apu_audio_callback( &apu, audioBuffer );
+    sampleCnt = 0;
   }
+}
+
+bool __not_in_flash_func( doAudio )( repeating_timer_t* t ) {
+  // We will be accessing audio functions in the flash, so don't do 
+  // audio stuff when saving is in process.
+  if ( doingSave ) {
+    return true;
+  }
+  
+  // Check audio.
+  audio_sample_t curSample = audioBuffer[ sampleCnt ];
+  curSample /= 2;
+
+  if ( abs( curSample ) > maxVal ) {
+    maxVal = abs( curSample );
+    audioScale = ( maxVal * 2 ) / AUDIOSTEPS;
+  }
+  
+  curSample += maxVal;
+  
+  // Scale sample.
+  audio_sample_t curSampleScaled = curSample / audioScale;
+  
+  if ( curSampleScaled >= AUDIOSTEPS ) {
+    curSampleScaled = AUDIOSTEPS - 1;
+  }
+  
+  
+  AUDIO = (uint8_t) curSampleScaled;    
+  
+  if ( sampleCnt < AUDIO_SAMPLES_TOTAL - 1 ) {
+    sampleCnt += 2;
+  }
+    
+  return true;
 }
 
 void __not_in_flash_func( handleBuffer )(){
   // Frame buffer setup.
   uint8_t* fb = rom + FBOFFSET;
   
-  while ( 1 ) {
-    
+  // Do audio callback.
+  static repeating_timer_t t;
+  add_repeating_timer_us( AUDIOSAMPLEPER_US, doAudio, 0, &t );
+  
+  while ( 1 ) {    
     #ifdef TRIPLEFB
     // Advance read pointer?
     if ( frameBlendCnt == 0 ) {

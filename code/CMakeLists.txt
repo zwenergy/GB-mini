@@ -29,6 +29,6 @@ pico_enable_stdio_uart(${PROJECT} 0)
 
 pico_add_extra_outputs(${PROJECT})
 
-target_sources(${PROJECT} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/main.c)
+target_sources(${PROJECT} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/main.c ${CMAKE_CURRENT_SOURCE_DIR}/minigb_apu/minigb_apu.c)
 
 target_link_libraries(${PROJECT} pico_stdlib pico_multicore hardware_pio hardware_dma hardware_flash)
