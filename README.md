@@ -8,7 +8,9 @@ The emulator actually does **not** on the Pokemon mini itself, but on the RP2040
 ## Button Mapping
 The D-Pad and A/B buttons are mapped directly.
 The C-Button of the PM is mapped to the Start button of the GB.
-Currently the Select button is not mapped to any PM button.
+The Game Boy Select button is mapped to the Power button of the Pokemon mini.
+
+For turning off the Pokemon mini hold the Power button for roughly 2 seconds.
 
 ## Save Games
 Save games are not automatically permanently saved.
