@@ -30,6 +30,14 @@
 // Game Boy ROM.
 #include "gb_rom.h"
 
+// Optionally, a bootrom can be included. Uncomment if you want to do
+// this.
+//#define USEBIOS
+
+#ifdef USEBIOS
+#include "bios.h"
+#endif
+
 // Include the GB emulator.
 uint8_t audio_read( uint16_t addr );
 void audio_write( uint16_t addr, uint8_t val );
@@ -92,7 +100,7 @@ audio_sample_t audioBuffer[ 1100 ];
 // Use rumble? We do not differentiate here by MBC, so using the rumble
 // feature with non-rumble games can cause rumble when no rumble is
 // intended.
-#define USE_RUMBLE
+//#define USE_RUMBLE
 
 // FRAMEBLEND defines the number of colors and the number of frames
 // blended together to create these colors.
@@ -205,6 +213,13 @@ void LCDLine( struct gb_s *gb, const uint8_t pixels[ LCD_WIDTH ], const uint_fas
   }
 }
 
+#ifdef USEBIOS
+static uint8_t gb_bios_read(struct gb_s *gb, const uint_fast16_t addr)
+{
+	return bios[addr];
+}
+#endif
+
 // GB audio stuff.
 static struct minigb_apu_ctx apu;
 
@@ -288,6 +303,10 @@ void __not_in_flash_func( doGB )() {
   ret = gb_init( &gb, &gbReadByteROM, &gbReadByteRAM,
     &gbWriteByteRAM, &gbRumble, &gbError, &gb_priv );
 
+  #ifdef USEBIOS
+  gb_set_bootrom(&gb, gb_bios_read);
+  gb_reset(&gb);
+  #endif
 
   if ( ret != GB_INIT_NO_ERROR ) {
     // Loop infinite.
@@ -376,6 +395,11 @@ void __not_in_flash_func( doGB )() {
     if ( pmKeys & 0b00000010 ) {
       // B.
       gb.direct.joypad_bits.b = 0;
+    }
+    
+    if ( pmKeys & 0b10000000 ) {
+      // Select.
+      gb.direct.joypad_bits.select = 0;
     }
     
     // Check for save game transfer to flash?
